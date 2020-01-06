@@ -21,10 +21,8 @@
 module jtbtiger_game(
     input           rst,
     input           clk,
-    output          cen12,      // 12   MHz
-    output          cen6,       //  6   MHz
-    output          cen3,       //  3   MHz
-    output          cen1p5,     //  1.5 MHz
+    output          pxl2_cen,   // 12   MHz
+    output          pxl_cen,    //  6   MHz
     output   [3:0]  red,
     output   [3:0]  green,
     output   [3:0]  blue,
@@ -96,8 +94,8 @@ wire       scr_layout;
 
 // ROM data
 wire [15:0] char_data;
-wire [23:0] scr_data;
-wire [15:0] obj_data;
+wire [15:0] scr_data;
+wire [15:0] obj_data, obj_pre;
 wire [ 7:0] main_data;
 wire [ 7:0] snd_data;
 // ROM address
@@ -113,6 +111,10 @@ wire        cenfm;
 
 wire rom_ready;
 wire main_ok, snd_ok, obj_ok;
+wire cen12, cen6, cen3, cen1p5;
+
+assign pxl2_cen = cen12;
+assign pxl_cen  = cen6;
 
 assign sample=1'b1;
 
@@ -141,7 +143,7 @@ end
 
 wire cen8;
 
-jtgng_cen #(.CLK_SPEED(CLK_SPEED)) u_cen(
+jtframe_cen48 u_cen(
     .clk    ( clk       ),
     .cen12  ( cen12     ),
     .cen12b (           ),
@@ -152,7 +154,7 @@ jtgng_cen #(.CLK_SPEED(CLK_SPEED)) u_cen(
     .cen1p5 ( cen1p5    )
 );
 
-jtgng_cen3p57 u_cen3p57(
+jtframe_cen3p57 u_cen3p57(
     .clk      ( clk       ),
     .cen_3p57 ( cenfm     ),
     .cen_1p78 (           )     // unused
@@ -219,10 +221,11 @@ jtbtiger_prom_we u_prom_we(
     .prom_we     ( prom_we       )
 );
 
-wire prom_mcu = prom_we[4];
+wire prom_prior_we = prom_we[0];
+wire prom_mcu      = prom_we[4];
 
 wire scr_cs;
-wire [8:0] scr_hpos, scr_vpos;
+wire [10:0] scr_hpos, scr_vpos;
 
 
 `ifndef NOMAIN
@@ -300,6 +303,8 @@ assign RnW         = 1'b1;
 assign scr_hpos    = 9'd0;
 assign scr_vpos    = 9'd0;
 assign cpu_cen     = cen3;
+assign scr_layout  = 1'b0;
+assign scr_bank    = 2'b0;
 `endif
 
 `ifndef NOMCU
@@ -322,14 +327,14 @@ assign mcu_dout = 8'hff;
 reg [7:0] psg_gain;
 always @(posedge clk) begin
     case( dip_fxlevel )
-        2'd0: psg_gain <= 8'h1F;
+        2'd0: psg_gain <= 8'h2F;
         2'd1: psg_gain <= 8'h3F;
-        2'd2: psg_gain <= 8'h7F;
-        2'd3: psg_gain <= 8'hFF;
+        2'd2: psg_gain <= 8'h4F;
+        2'd3: psg_gain <= 8'h5F;
     endcase // dip_fxlevel
 end
 
-jtgng_sound #(.LAYOUT(4)) u_sound (
+jtgng_sound #(.LAYOUT(4),.FM_GAIN(8'h38)) u_sound (
     .rst            ( rst_game       ),
     .clk            ( clk            ),
     .cen3           ( cenfm          ),
@@ -359,8 +364,7 @@ assign snd_cs   = 1'b0;
 assign snd      = 16'b0;
 `endif
 
-wire scr1_ok, scr2_ok, char_ok;
-wire scr_ok = scr1_ok & scr2_ok;
+wire scr_ok, char_ok;
 
 reg pause;
 always @(posedge clk) pause <= ~dip_pause;
@@ -368,6 +372,7 @@ always @(posedge clk) pause <= ~dip_pause;
 jtbtiger_video u_video(
     .rst        ( rst           ),
     .clk        ( clk           ),
+    .cen12      ( cen12         ),
     .cen8       ( cen8          ),
     .cen6       ( cen6          ),
     .cen3       ( cen3          ),
@@ -413,9 +418,7 @@ jtbtiger_video u_video(
     .OBJON      ( OBJON         ),
     // PROMs
     .prog_addr    ( prog_addr[7:0]),
-    .prom_red_we  ( 1'b0          ),
-    .prom_green_we( 1'b0          ),
-    .prom_blue_we ( 1'b0          ),
+    .prom_prior_we( prom_prior_we ),
     .prom_din     ( prog_data[3:0]),
     // Palette RAM
     .blue_cs    ( blue_cs       ),
@@ -437,58 +440,59 @@ jtbtiger_video u_video(
 wire [7:0] scr_nc; // no connect
 
 // Scroll data: Z, Y, X
-jtgng_rom #(
-    `ifdef MISTER
-    .BRAM_MAIN  ( 1               ),
-    // .BRAM_SOUND ( 1               ),
-    `endif
-    .char_aw    ( 14              ),
-    .main_aw    ( 19              ),
-    .obj_aw     ( 17              ),
-    .scr1_aw    ( 17              ),
-    .snd_offset ( 22'h4_8000 >> 1 ),
-    .char_offset( 22'h5_0000 >> 1 ),
-    .scr1_offset( 22'h6_0000      ),
-    .obj_offset ( 22'hA_0000      )
+jtframe_rom #(
+    .SLOT0_AW    ( 14              ), // Char
+    .SLOT0_DW    ( 16              ),
+    .SLOT0_OFFSET( 22'h5_0000 >> 1 ),
+
+    .SLOT1_AW    ( 17              ), // Scroll
+    .SLOT1_DW    ( 16              ),
+    .SLOT1_OFFSET( 22'h6_0000      ),
+
+    .SLOT6_AW    ( 15              ), // Sound
+    .SLOT6_DW    (  8              ),
+    .SLOT6_OFFSET( 22'h4_8000 >> 1 ),
+
+    .SLOT7_AW    ( 19              ),
+    .SLOT7_DW    (  8              ),
+    .SLOT7_OFFSET(  0              ), // Main
+
+    .SLOT8_AW    ( 17              ), // objects
+    .SLOT8_DW    ( 16              ),
+    .SLOT8_OFFSET( 22'hA_0000      )
 ) u_rom (
     .rst         ( rst           ),
     .clk         ( clk           ),
-    .LHBL        ( LHBL          ),
-    .LVBL        ( LVBL          ),
+    .vblank      ( ~LVBL         ),
 
-    .pause       ( pause         ),
-    .main_cs     ( main_cs       ),
-    .snd_cs      ( snd_cs        ),
-    .snd2_cs     ( 1'b0          ),
-    .main_ok     ( main_ok       ),
-    .snd_ok      ( snd_ok        ),
-    .snd2_ok     (               ),
-    .scr1_ok     ( scr1_ok       ),
-    .scr2_ok     ( scr2_ok       ),
-    .map1_ok     (               ),
-    .map2_ok     (               ),
-    .char_ok     ( char_ok       ),
-    .obj_ok      ( obj_ok        ),
+    // .pause       ( pause         ),
+    .slot0_cs    ( LVBL          ),
+    .slot1_cs    ( LVBL          ),
+    .slot2_cs    ( 1'b0          ), // unused 
+    .slot3_cs    ( 1'b0          ), // unused
+    .slot4_cs    ( 1'b0          ), // unused
+    .slot5_cs    ( 1'b0          ), // unused
+    .slot6_cs    ( snd_cs        ),
+    .slot7_cs    ( main_cs       ),
+    .slot8_cs    ( 1'b1          ),
 
-    .char_addr   ( char_addr     ),
-    .main_addr   ( main_addr     ),
-    .snd_addr    ( snd_addr      ),
-    .snd2_addr   ( 16'd0         ),
-    .obj_addr    ( obj_addr      ),
-    .scr1_addr   ( scr_addr      ),
-    .scr2_addr   ( 15'd0         ),
-    .map1_addr   ( 14'd0         ),
-    .map2_addr   ( 14'd0         ),
+    .slot0_ok    ( char_ok       ),
+    .slot1_ok    ( scr_ok        ),
+    .slot6_ok    ( snd_ok        ),
+    .slot7_ok    ( main_ok       ),
+    .slot8_ok    ( obj_ok        ),
 
-    .char_dout   ( char_data     ),
-    .main_dout   ( main_data     ),
-    .snd_dout    ( snd_data      ),
-    .snd2_dout   (               ),
-    .obj_dout    ( obj_data      ),
-    .map1_dout   (               ),
-    .map2_dout   (               ),
-    .scr1_dout   ( scr_data[15:0] ),
-    .scr2_dout   ( { scr_nc, scr_data[23:16] } ),
+    .slot0_addr  ( char_addr     ),
+    .slot1_addr  ( scr_addr      ),
+    .slot6_addr  ( snd_addr      ),
+    .slot7_addr  ( main_addr     ),
+    .slot8_addr  ( obj_addr      ),
+
+    .slot0_dout  ( char_data     ),
+    .slot1_dout  ( scr_data      ),
+    .slot6_dout  ( snd_data      ),
+    .slot7_dout  ( main_data     ),
+    .slot8_dout  ( obj_pre       ),
 
     .ready       ( rom_ready     ),
     // SDRAM interface
@@ -499,12 +503,16 @@ jtgng_rom #(
     .loop_rst    ( loop_rst      ),
     .sdram_addr  ( sdram_addr    ),
     .data_read   ( data_read     ),
-    .refresh_en  ( refresh_en    ),
+    .refresh_en  ( refresh_en    )
+);
 
-    .prog_data   ( prog_data     ),
-    .prog_mask   ( prog_mask     ),
-    .prog_addr   ( prog_addr     ),
-    .prog_we     ( prog_we       )
+jtframe_avatar u_avatar(
+    .rst         ( rst           ),
+    .clk         ( clk           ),
+    .pause       ( pause         ),
+    .obj_addr    ( obj_addr[12:0]),
+    .obj_data    ( obj_pre       ),
+    .obj_mux     ( obj_data      ),
 );
 
 endmodule

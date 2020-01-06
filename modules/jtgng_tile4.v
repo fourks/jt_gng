@@ -63,7 +63,7 @@ always @(*) begin
     case(LAYOUT)
         default: begin
             scr_hflip = attr[6]^flip;
-            scr_vflip = attr[7]^flip;
+            scr_vflip = attr[7]/*^flip*/;
         end
         1: begin // Bionic Commando SCROLL 1. No ^flip on schematics
             aux = ~&attr[7:6];
@@ -82,6 +82,10 @@ always @(*) begin
             // 7-6 ID
             scr_hflip = attr[5]^flip;
             scr_vflip = flip;
+        end
+        4: begin // Black Tiger
+            scr_hflip = attr[7]^flip;
+            scr_vflip = 1'b0;
         end
     endcase
 end
@@ -120,10 +124,19 @@ always @(posedge clk) if(cen6) begin
                             SV[4:0],
                             HS[2]^scr_hflip };
             end
+        4: begin // Black Tiger, 16x16 tiles
+            scr_attr0      <= attr[6:3];
+            scr_addr       <= { attr[2:0], id, // AS
+                            HS[3]^scr_hflip,
+                            SV[3:0]^{4{flip}},
+                            HS[2]^scr_hflip
+                            };
+            scr_hflip0     <= scr_hflip;            
+        end
         endcase
         scr_hflip0 <= scr_hflip;
     end
-    else begin
+    else if(HS[1:0]==2'b1) begin
         case( LAYOUT )
             // 1943
             0: if(HS[2:0]==3'b101 ) scr_addr[0] <= HS[2]^scr_hflip0;
@@ -135,6 +148,10 @@ always @(posedge clk) if(cen6) begin
             2: if(HS[2:0]==3'b101 ) scr_addr[0] <= HS[2]^scr_hflip0;
             // Tiger Road
             3: if(HS[2:0]==3'b101 ) begin
+                scr_addr[0] <= HS[2]^scr_hflip0;
+            end
+            4: begin // Black Tiger
+                scr_addr[5] <= HS[3]^scr_hflip0;
                 scr_addr[0] <= HS[2]^scr_hflip0;
             end
         endcase // LAYOUT
@@ -185,7 +202,7 @@ generate
         wire [7:0] pal_addr = SCxON ? { scr_pal0, scr_col0 } : 8'hFF;
 
         // Palette
-        jtgng_prom #(.aw(8),.dw(2),.simfile(SIMFILE_MSB)) u_prom_msb(
+        jtframe_prom #(.aw(8),.dw(2),.simfile(SIMFILE_MSB)) u_prom_msb(
             .clk    ( clk            ),
             .cen    ( cen6           ),
             .data   ( prom_din[1:0]  ),
@@ -195,7 +212,7 @@ generate
             .q      ( scr_pxl[5:4]   )
         );
 
-        jtgng_prom #(.aw(8),.dw(4),.simfile(SIMFILE_LSB)) u_prom_lsb(
+        jtframe_prom #(.aw(8),.dw(4),.simfile(SIMFILE_LSB)) u_prom_lsb(
             .clk    ( clk            ),
             .cen    ( cen6           ),
             .data   ( prom_din       ),

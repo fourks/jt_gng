@@ -44,8 +44,8 @@ module jtbtiger_main(
     input   [7:0]      scr_dout,
     output  reg        scr_cs,
     input              scr_busy,
-    output reg [8:0]   scr_hpos,
-    output reg [8:0]   scr_vpos,
+    output reg [10:0]  scr_hpos,
+    output reg [10:0]  scr_vpos,
     output reg [1:0]   scr_bank,
     output reg         scr_layout,
     output  reg        CHRON,
@@ -107,8 +107,8 @@ always @(*) begin
         3'b0??: rom_cs = 1'b1; 
         3'b10?: rom_cs = 1'b1; // banked ROM
         3'b110: // CXXX, DXXX
-            case(A[12:11])
-                2'b00: // C0
+            casez(A[12:11])
+                2'b0?: // C0
                     scr_cs = 1'b1;
                 2'b10: // D0
                     char_cs = 1'b1; // D0CS
@@ -157,15 +157,15 @@ end
 // SCROLL H/V POSITION
 always @(posedge clk, negedge t80_rst_n) begin
     if( !t80_rst_n ) begin
-        scr_hpos <= 9'd0;
-        scr_vpos <= 9'd0;
+        scr_hpos <= 11'd0;
+        scr_vpos <= 11'd0;
     end else if(cpu_cen) begin
         if( scrpos_cs )
         case(A[1:0])
-            2'd0: scr_hpos[7:0] <= cpu_dout;
-            2'd1: scr_hpos[8]   <= cpu_dout[0];
-            2'd2: scr_vpos[7:0] <= cpu_dout;
-            2'd3: scr_vpos[8]   <= cpu_dout[0];
+            2'd0: scr_hpos[ 7:0] <= cpu_dout;
+            2'd1: scr_hpos[10:8] <= cpu_dout[2:0];
+            2'd2: scr_vpos[ 7:0] <= cpu_dout;
+            2'd3: scr_vpos[10:8] <= cpu_dout[2:0];
         endcase
     end
 end
@@ -238,7 +238,7 @@ assign cpu_AB = A[12:0];
 wire [12:0] RAM_addr = blcnten ? {4'b1111, obj_AB} : cpu_AB;
 wire RAM_we   = blcnten ? 1'b0 : cpu_ram_we;
 
-jtgng_ram #(.aw(13),.cen_rd(0)) RAM(
+jtframe_ram #(.aw(13),.cen_rd(0)) RAM(
     .clk        ( clk       ),
     .cen        ( cpu_cen   ),
     .addr       ( RAM_addr  ),
@@ -247,9 +247,11 @@ jtgng_ram #(.aw(13),.cen_rd(0)) RAM(
     .q          ( ram_dout  )
 );
 
+
 always @(*) begin
     cpu_din = 8'hff;
     case( 1'b1 )
+        // ram_cs : cpu_din = A==16'hf3a1 && ram_dout==8'd0 ? 8'd4 : ram_dout; // cheat to start on level 5
         ram_cs : cpu_din = ram_dout;
         char_cs: cpu_din = char_dout;
         scr_cs : cpu_din = scr_dout;
@@ -267,32 +269,24 @@ end
 
 /////////////////////////////////////////////////////////////////
 // wait_n generation
-wire wait_n;
+wire cpu_cenw;
 
 jtframe_z80wait #(2) u_wait(
     .rst_n      ( t80_rst_n ),
     .clk        ( clk       ),
-    .cpu_cen    ( cpu_cen   ),
+    .cen_in     ( cpu_cen   ),
+    .cen_out    ( cpu_cenw  ),
     // manage access to shared memory
     .dev_busy   ( { scr_busy, char_busy } ),
     // manage access to ROM data from SDRAM
     .rom_cs     ( rom_cs    ),
-    .rom_ok     ( rom_ok    ),
-
-    .wait_n     ( wait_n    )
+    .rom_ok     ( rom_ok    )
 );
 
-reg wait_cen;
-
-always @(negedge clk)
-    wait_cen <= wait_n;
-
-wire cpu_wait_cen = cpu_cen & wait_cen;
 
 ///////////////////////////////////////////////////////////////////
-// interrupt generation. 1943 Schematics page 5/9, parts 12J and 14K
+// interrupt generation.
 reg int_n, int_rqb, int_rqb_last;
-wire int_middle = V[7:5]!=3'd3;
 wire int_rqb_negedge = !int_rqb && int_rqb_last;
 
 always @(posedge clk, posedge rst)
@@ -300,17 +294,17 @@ always @(posedge clk, posedge rst)
         int_n <= 1'b1;
     end else if(cpu_cen) begin
         int_rqb_last <= int_rqb;
-        int_rqb <= LVBL; // && int_middle;
+        int_rqb <= LVBL;
         if( irq_ack )
             int_n <= 1'b1;
         else
-            if ( int_rqb_negedge ) int_n <= 1'b0;
+            if ( int_rqb_negedge && dip_pause ) int_n <= 1'b0;
     end
 
 jtframe_z80 u_cpu(
     .rst_n      ( t80_rst_n   ),
     .clk        ( clk         ),
-    .cen        ( cpu_wait_cen),
+    .cen        ( cpu_cenw    ),
     .wait_n     ( 1'b1        ),
     .int_n      ( int_n       ),
     .nmi_n      ( 1'b1        ),

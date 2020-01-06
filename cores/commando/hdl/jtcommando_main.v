@@ -193,7 +193,7 @@ assign cpu_AB = A[12:0];
 wire [12:0] RAM_addr = blcnten ? {4'b1111, obj_AB} : cpu_AB;
 wire RAM_we   = blcnten ? 1'b0 : cpu_ram_we;
 
-jtgng_ram #(.aw(13),.cen_rd(0)) RAM(
+jtframe_ram #(.aw(13),.cen_rd(0)) RAM(
     .clk        ( clk       ),
     .cen        ( cpu_cen   ),
     .addr       ( RAM_addr  ),
@@ -234,30 +234,21 @@ always @(*)
 assign rom_addr = A;
 
 /////////////////////////////////////////////////////////////////
-// wait_n generation
-wire wait_n;
+wire cpu_cenw;
 
 jtframe_z80wait #(2) u_wait(
     .rst_n      ( t80_rst_n ),
     .clk        ( clk       ),
-    .cpu_cen    ( cpu_cen   ),
+    .cen_in     ( cpu_cen   ),
+    .cen_out    ( cpu_cenw  ),
     // manage access to shared memory
     .dev_busy   ( { scr_busy, char_busy } ),
     // manage access to ROM data from SDRAM
     .rom_cs     ( rom_cs    ),
-    .rom_ok     ( rom_ok    ),
-
-    .wait_n     ( wait_n    )
+    .rom_ok     ( rom_ok    )
 );
 
-reg wait_cen;
-
-always @(negedge clk)
-    wait_cen <= wait_n;
-
-wire cpu_wait_cen = cpu_cen & wait_cen;
-
-jtgng_prom #(.aw(8),.dw(4),.simfile("../../../rom/commando/vtb5.6l")) u_vprom(
+jtframe_prom #(.aw(8),.dw(4),.simfile("../../../rom/commando/vtb5.6l")) u_vprom(
     .clk    ( clk          ),
     .cen    ( cen6         ),
     .data   ( prog_din     ),
@@ -309,7 +300,7 @@ end
 jtframe_z80 u_cpu(
     .rst_n      ( t80_rst_n   ),
     .clk        ( clk         ),
-    .cen        ( cpu_wait_cen),
+    .cen        ( cpu_cenw    ),
     .wait_n     ( 1'b1        ),
     .int_n      ( int_n       ),
     .nmi_n      ( 1'b1        ),

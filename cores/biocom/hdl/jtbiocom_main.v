@@ -25,7 +25,7 @@ module jtbiocom_main(
     input              clk,
     input              cen12,
     input              cen12b,
-    output             cpu_cen,
+    (*direct_enable *) output cpu_cen,
     // Timing
     output  reg        flip,
     input   [8:0]      V,
@@ -33,6 +33,7 @@ module jtbiocom_main(
     input              LVBL,
     // Sound
     output  reg  [7:0] snd_latch,
+    //output  reg  [7:0] snd_hack,
     output  reg        snd_nmi_n,
     // Characters
     input        [7:0] char_dout,
@@ -65,6 +66,7 @@ module jtbiocom_main(
     output             bus_ack,  // bus acknowledge
     input              blcnten,  // bus line counter enable
     // MCU interface
+    input              mcu_cen,
     input              mcu_brn,
     input      [ 7:0]  mcu_dout,
     output reg [ 7:0]  mcu_din,
@@ -138,7 +140,7 @@ always @(*) begin
                     3'd1:   io_cs   = 1'b1; // E_4000
                     3'd2: if( !UDSWn && !LDSWn && A[4]) begin // E_8010
                         // scrpt_cs
-                        $display("SCRPTn");
+                        // $display("SCRPTn");
                         case( A[3:1]) // SCRPTn in the schematics
                                 3'd0: scr1hpos_cs = 1'b1;
                                 3'd1: scr1vpos_cs = 1'b1;
@@ -146,11 +148,11 @@ always @(*) begin
                                 3'd3: scr2vpos_cs = 1'b1;
                                 3'd4: begin
                                     OKOUT       = 1'b1;
-                                    $display("OKOUT");
+                                    //$display("OKOUT");
                                 end
                                 3'd5: begin
                                     mcu_DMAONn  = 1'b0; // to MCU
-                                    $display("mcu_DOMAONn");
+                                    //$display("mcu_DOMAONn");
                                 end
                             default:;
                         endcase
@@ -166,6 +168,7 @@ end
 
 // MCU DMA address decoder
 reg mcu_obj_cs, mcu_ram_cs, mcu_io_cs, mcu_other_cs;
+reg [13:1]  work_A;
 
 always @(*) begin
     mcu_obj_cs   = 1'b0;
@@ -197,7 +200,7 @@ always @(posedge clk, posedge rst) begin
 end
 
 // special registers
-always @(posedge clk)
+always @(posedge clk) begin
     if( rst ) begin
         flip         <= 1'b0;
         snd_latch    <= 8'b0;
@@ -209,21 +212,29 @@ always @(posedge clk)
             case( { A[1]} )
                 1'b0: flip      <= cpu_dout[8];
                 1'b1: begin
-                    snd_latch <= cpu_dout[7:0];
+                    // sound latch is updated here on the actual PCB
+                    // however, the main CPU software never writes a
+                    // value here. This is only used to trigger the NMI
+                    // in practice
+                    snd_latch <= cpu_dout[7:0]; // real PCB behaviour
                     snd_nmi_n  <= 1'b0;
                 end
             endcase
+        // Hack to capture the sound code that is sent to the MCU
+        // if( !LDSWn && work_A==13'h1ffc && ram_cs)
+        //     snd_hack <= cpu_dout[7:0]; // hack
     end
+end
 
 reg [15:0] cabinet_input;
 
-always @(posedge clk) if(cpu_cen) begin
-    cabinet_input <= (!mcu_DMAn ? mcu_addr[1] : A[1]) ?
+always @(*) /*if(cpu_cen)*/ begin
+    cabinet_input = (!mcu_DMAn ? mcu_addr[1] : A[1]) ?
         { dipsw_a, dipsw_b } :
         { coin_input[0], coin_input[1],        // COINS
           start_button[0], start_button[1],    // START
-          { joystick1[3:0], joystick1[5:4]},   //  2 buttons
-          { joystick2[3:0], joystick2[5:4]} };
+          { joystick1[3:0], joystick1[4], joystick1[5]},   //  2 buttons
+          { joystick2[3:0], joystick2[4], joystick2[5]} };
 end
 
 /////////////////////////////////////////////////////
@@ -242,20 +253,19 @@ end
 
 /////////////////////////////////////////////////////
 // MCU DMA data output mux
-always @(posedge clk) begin
+always @(*) begin
     case( {mcu_obj_cs, mcu_ram_cs, mcu_io_cs } )
-        3'b100:  mcu_din <= oram_dout[7:0];
-        3'b010:  mcu_din <= wram_dout[7:0];
-        3'b001:  mcu_din <= cabinet_input[7:0];
-        default: mcu_din <= 8'hff;
+        3'b100:  mcu_din = oram_dout[7:0];
+        3'b010:  mcu_din = wram_dout[7:0];
+        3'b001:  mcu_din = cabinet_input[7:0];
+        default: mcu_din = 8'hff;
     endcase
 end
 
 /////////////////////////////////////////////////////
 // Work RAM, 16kB
-reg [13:1]  work_A;
 reg         work_uwe, work_lwe;
-wire        ram_cen=cpu_cen;
+reg         ram_cen;
 
 always @(*) begin
     if( mcu_ram_cs ) begin
@@ -263,15 +273,17 @@ always @(*) begin
         work_A   = mcu_addr[13:1];
         work_uwe = 1'b0;
         work_lwe = mcu_wr ;
+        ram_cen  = mcu_cen;
     end else begin 
         // CPU access
         work_A   = A[13:1];
         work_uwe = ram_cs & !UDSWn;
         work_lwe = ram_cs & !LDSWn;
+        ram_cen  = cpu_cen;
     end
 end
 
-jtgng_ram #(.aw(13),.cen_rd(0)) u_ramu(
+jtframe_ram #(.aw(13),.cen_rd(1)) u_ramu(
     .clk        ( clk              ),
     .cen        ( ram_cen          ),
     .addr       ( work_A           ),
@@ -280,7 +292,7 @@ jtgng_ram #(.aw(13),.cen_rd(0)) u_ramu(
     .q          ( wram_dout[15:8]  )
 );
 
-jtgng_ram #(.aw(13),.cen_rd(0)) u_raml(
+jtframe_ram #(.aw(13),.cen_rd(1)) u_raml(
     .clk        ( clk              ),
     .cen        ( ram_cen          ),
     .addr       ( work_A           ),
@@ -315,7 +327,7 @@ always @(*) begin
     endcase
 end
 
-jtgng_ram #(.aw(11),.cen_rd(0)) u_obj_ramu(
+jtframe_ram #(.aw(11),.cen_rd(1)) u_obj_ramu(
     .clk        ( clk              ),
     .cen        ( ram_cen          ),
     .addr       ( oram_addr        ),
@@ -324,7 +336,7 @@ jtgng_ram #(.aw(11),.cen_rd(0)) u_obj_ramu(
     .q          ( oram_dout[15:8]  )
 );
 
-jtgng_ram #(.aw(11),.cen_rd(0)) u_obj_raml(
+jtframe_ram #(.aw(11),.cen_rd(1)) u_obj_raml(
     .clk        ( clk              ),
     .cen        ( ram_cen          ),
     .addr       ( oram_addr        ),
@@ -361,21 +373,35 @@ always @(*)
 assign rom_addr = A[17:1];
 
 // DTACKn generation
-
-// wire dtack_cln = ~|{ ASn, |{char_cs, scr1_cs, scr2_cs} };
-// wire [3:0] dtack_q;
-// wire       dtack_ca;
 wire       inta_n;
-//wire DTACKn =  |{ dtack_ca, scr1_busy, scr2_busy, char_busy };
-//wire DTACKn =  |{ (rom_cs&~rom_ok), scr1_busy, scr2_busy, char_busy };
-wire       bus_cs =   |{ rom_cs, scr1_cs, scr2_cs, char_cs };
-wire       bus_busy = |{ rom_cs & ~rom_ok, scr1_busy, scr2_busy, char_busy };
+reg  [7:0] io_busy_cnt;
+wire       io_busy = io_busy_cnt[0];
+wire       bus_cs =   |{ rom_cs, scr1_cs, scr2_cs, char_cs, io_cs };
+wire       bus_busy = |{ rom_cs & ~rom_ok, scr1_busy, scr2_busy, char_busy, io_busy };
+
+// DTACK is also held down during IO access in order to make
+// the NMI request to the Z80 CPU long enough
+// If the Z80 misses these requests it will not play any sound at all.
+always @(posedge clk, posedge rst) begin : io_busy_gen
+    reg       last_iocs;
+    if( rst ) begin
+        io_busy_cnt <= 8'd0;
+        last_iocs   <= 1'b0;
+    end else if(cpu_cen) begin
+        last_iocs <= io_cs;
+        if( io_cs && !last_iocs ) 
+            io_busy_cnt <= ~8'd0;
+        else 
+            io_busy_cnt <= io_busy_cnt>>1;
+    end
+end
+
 reg DTACKn;
 always @(posedge clk, posedge rst) begin : dtack_gen
     reg       last_ASn;
     if( rst ) begin
-        DTACKn <= 1'b1;
-    end else if(cpu_cen) begin
+        DTACKn      <= 1'b1;
+    end else if(cen12b) begin
         DTACKn   <= 1'b1;
         last_ASn <= ASn;
         if( !ASn  ) begin
@@ -388,17 +414,6 @@ always @(posedge clk, posedge rst) begin : dtack_gen
     end
 end 
 
-// jt74161 u_dtack(
-//     .clk    ( clk                      ),
-//     .cl_b   ( dtack_cln                ),
-//     .cet    (   inta_n & (rom_cs ? rom_ok : 1'b1)        ),
-//     .cep    ( DTACKn                   ),
-//     .d      ( { 1'b1, ~rom_cs, 2'b11 } ),
-//     .q      ( dtack_q                  ),
-//     .ld_b   ( dtack_q[3]               ),
-//     .ca     ( dtack_ca                 )
-// );
-// 
 // interrupt generation
 reg        int1, int2;
 wire [2:0] FC;
@@ -417,7 +432,7 @@ always @(posedge clk, posedge rst) begin : int_gen
             int1 <= 1'b1;
             int2 <= 1'b1;
         end
-        else begin
+        else if(dip_pause) begin
             if( V[8] && !last_V256 ) int2 <= 1'b0;
             if( !LVBL && last_LVBL ) int1 <= 1'b0;
         end
@@ -481,32 +496,3 @@ fx68k u_cpu(
 );
 
 endmodule
-/*
-// synchronous presettable 4-bit binary counter, asynchronous clear
-module jt74161( // ref: 74??161
-    input            cet,   // pin: 10
-    input            cep,   // pin: 7
-    input            ld_b,  // pin: 9
-    input            clk,   // pin: 2
-    input            cl_b,  // pin: 1
-    input      [3:0] d,     // pin: 6,5,4,3
-    output reg [3:0] q,     // pin: 11,12,13,14
-    output           ca     // pin: 15
- );
-
-    `ifdef SIMULATION
-    initial q=4'd0;
-    `endif
-
-    assign ca = &{q, cet};
-
-    always @(posedge clk or negedge cl_b)
-        if( !cl_b )
-            q <= 4'd0;
-        else begin
-            if(!ld_b) q <= d;
-            else if( cep&&cet ) q <= q+4'd1;
-        end
-
-endmodule // jt74161
-*/

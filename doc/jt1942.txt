@@ -1,6 +1,17 @@
+KNOWN ISSUES
+============
+
+If you enable flip mode and wait for the CAPCOM logo screen to appear for the second time, the animation will not be displayed correctly. This occurs because that logo is printed using two sprites right at the limit of the vertical split line (schematics 5/8). I think this is a genuine bug of the original hardware. The CAPCOM logo works correctly when not in flip mode.
+
 RELEASE HISTORY
 ===============
 
+28th Dec 2019
+    - Fixes missing sprite bug
+    - Fixes top line missing (noticeable in cross hatch test)
+    - Moved to new MiSTer SYS folder
+21st Nov 2019
+    - Fixes bug in SDRAM controller
 13th Nov 2019
     - Updated to latest JT49 sound module. Fixes bug in envelope duration
     - Set JT49 compression to level 2 (21dB)

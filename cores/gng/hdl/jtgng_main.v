@@ -21,8 +21,8 @@
 module jtgng_main(
     input              clk,
     input              cen6  /* synthesis direct_enable = 1 */,   // 6MHz
-    input              cen3,   // 3MHz
-    input              cen1p5,   // 1.5MHz
+    (* direct_enable *) input cen_E,
+    (* direct_enable *) input cen_Q,
     output             cpu_cen,
     input              rst,
     input              LVBL,   // vertical blanking when 0
@@ -70,7 +70,7 @@ module jtgng_main(
 );
 
 wire [15:0] A;
-wire MRDY, E, Q;
+wire waitn;
 wire nRESET;
 reg sound_cs, scrpos_cs, in_cs, flip_cs, ram_cs, bank_cs;
 
@@ -87,8 +87,6 @@ reg sound_cs, scrpos_cs, in_cs, flip_cs, ram_cs, bank_cs;
 //end
 //`endif
 
-assign cpu_cen = cen3;
-
 reg [7:0] AH;
 
 always @(*) begin
@@ -104,7 +102,7 @@ always @(*) begin
     char_cs     = 1'b0;
     bank_cs     = 1'b0;
     rom_cs      = 1'b0;
-    if( /* (E || Q || !MRDY) && */ nRESET ) case(A[15:13])
+    if( /* (E || Q || !waitn) && */ nRESET ) case(A[15:13])
         3'b000: ram_cs = 1'b1;
         3'b001: case( A[12:11])
                 2'd0: char_cs = 1'b1;
@@ -209,7 +207,7 @@ assign cpu_AB = A[12:0];
 wire [12:0] RAM_addr = blcnten ? { 4'hf, obj_AB } : cpu_AB;
 wire RAM_we   = blcnten ? 1'b0 : cpu_ram_we;
 
-jtgng_ram #(.aw(13)) u_ram(
+jtframe_ram #(.aw(13)) u_ram(
     .clk        ( clk       ),
     .cen        ( cen6      ),
     .addr       ( RAM_addr  ),
@@ -255,25 +253,30 @@ always @(posedge clk) if(cen6) begin
         if(last_LVBL && !LVBL ) nIRQ<=1'b0 | ~dip_pause; // when LVBL goes low
 end
 
-jtframe_z80wait #(2) u_wait(
+wire E,Q;
+
+jtframe_dual_wait #(2) u_wait(
     .rst_n      ( nRESET    ),
     .clk        ( clk       ),
-    .cpu_cen    ( cpu_cen   ),
+    .cen_in     ( { cen_E, cen_Q }    ),
+    .cen_out    ( { E,Q          }    ),
+    .gate       ( waitn     ),
     // manage access to shared memory
     .dev_busy   ( { scr_busy, char_busy } ),
     // manage access to ROM data from SDRAM
     .rom_cs     ( rom_cs    ),
-    .rom_ok     ( rom_ok    ),
-
-    .wait_n     ( MRDY      )
+    .rom_ok     ( rom_ok    )
 );
 
-
 // cycle accurate core
-wire EXTAL = ~(clk &cen6);
 wire [111:0] RegData;
 
-mc6809 u_cpu (
+assign cpu_cen = Q;
+
+mc6809i u_cpu (
+    .clk     ( clk     ),
+    .cen_E   ( E       ),
+    .cen_Q   ( Q       ),
     .D       ( cpu_din ),
     .DOut    ( cpu_dout),
     .ADDR    ( A       ),
@@ -283,15 +286,10 @@ mc6809 u_cpu (
     .nIRQ    ( nIRQ    ),
     .nFIRQ   ( 1'b1    ),
     .nNMI    ( 1'b1    ),
-    .EXTAL   ( EXTAL   ),
     .nHALT   ( ~bus_req),
     .nRESET  ( nRESET  ),
-    .MRDY    ( MRDY    ),
     .nDMABREQ( 1'b1    ),
     // unused:
-    .XTAL    ( 1'b0    ),
-    .E       ( E       ),
-    .Q       ( Q       ),
     .RegData ( RegData )
     //.AVMA()
 );

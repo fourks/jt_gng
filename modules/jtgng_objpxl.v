@@ -18,7 +18,7 @@
 
 // Object Line Buffer
 
-module jtgng_objpxl #(parameter dw=4,obj_dly = 5'hc,palw=0,PXL_DLY=7)(
+module jtgng_objpxl #(parameter dw=4,palw=0,PXL_DLY=7)(
     input              rst,
     input              clk,
     input              cen /*direct_enable*/,
@@ -106,7 +106,7 @@ always @(*) begin
     end
 end
 
-jtgng_ram #(.aw(8),.dw(dw),.cen_rd(0)) lineA_buf(
+jtframe_ram #(.aw(8),.dw(dw),.cen_rd(0)) lineA_buf(
     .clk     ( clk             ),
     .cen     ( 1'b1            ),
     .addr    ( addrA           ),
@@ -115,7 +115,7 @@ jtgng_ram #(.aw(8),.dw(dw),.cen_rd(0)) lineA_buf(
     .q       ( lineA_q         )
 );
 
-jtgng_ram #(.aw(8),.dw(dw),.cen_rd(0)) lineB_buf(
+jtframe_ram #(.aw(8),.dw(dw),.cen_rd(0)) lineB_buf(
     .clk     ( clk             ),
     .cen     ( 1'b1            ),
     .addr    ( addrB           ),
@@ -125,7 +125,7 @@ jtgng_ram #(.aw(8),.dw(dw),.cen_rd(0)) lineB_buf(
 );
 
 // Delay pixel output in order to be aligned with the other layers
-jtgng_sh #(.width(dw), .stages(PXL_DLY)) u_sh(
+jtframe_sh #(.width(dw), .stages(PXL_DLY)) u_sh(
     .clk            ( clk           ),
     .clk_en         ( pxl_cen       ), // important: pixel cen!
     .din            ( obj_pxl0      ),

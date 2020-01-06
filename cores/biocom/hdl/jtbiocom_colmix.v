@@ -116,14 +116,15 @@ always @(posedge clk) if(cen6) begin
 end
 
 // Blanking delay
-wire [1:0] pre_BL;
+//wire  [1:0] pre_BL = {LHBL, LVBL};
+reg  [1:0] pre_BL;
 
-jtgng_sh #(.width(2),.stages(5)) u_blank_dly(
-    .clk    ( clk      ),
-    .clk_en ( cen6     ),
-    .din    ( {LHBL, LVBL}     ),
-    .drop   ( pre_BL   )
-);
+// jtframe_sh #(.width(2),.stages(5)) u_blank_dly(
+//     .clk    ( clk      ),
+//     .clk_en ( cen6     ),
+//     .din    ( {LHBL, LVBL}     ),
+//     .drop   ( pre_BL   )
+// );
 
 // Address mux
 reg  [9:0] pal_addr;
@@ -144,6 +145,7 @@ always @(*) begin
 end
 
 always @(posedge clk) if(cen6) begin
+    pre_BL <= {LHBL, LVBL};
     coloff <= pre_BL!=2'b11;
     {LHBL_dly, LVBL_dly} <= pre_BL;
 end
@@ -151,7 +153,7 @@ end
 
 // Palette is in RAM
 
-jtgng_ram #(.aw(10),.dw(8),.simhexfile("palrg.hex")) u_upal(
+jtframe_ram #(.aw(10),.dw(8),.simhexfile("palrg.hex")) u_upal(
     .clk        ( clk         ),
     .cen        ( cpu_cen     ), // clock enable only applies to write operation
     .data       ( DB[15:8]    ),
@@ -160,7 +162,7 @@ jtgng_ram #(.aw(10),.dw(8),.simhexfile("palrg.hex")) u_upal(
     .q          ( {pal_red, pal_green } )
 );
 
-jtgng_ram #(.aw(10),.dw(8),.simhexfile("palbb.hex")) u_lpal(
+jtframe_ram #(.aw(10),.dw(8),.simhexfile("palbb.hex")) u_lpal(
     .clk        ( clk         ),
     .cen        ( cpu_cen     ), // clock enable only applies to write operation
     .data       ( DB[7:0]     ),
@@ -186,7 +188,7 @@ jtgng_avatar_pal u_avatar(
 
 // Clock must be faster than 6MHz so pre_prio is ready for the next
 // 6MHz clock cycle:
-jtgng_prom #(.aw(8),.dw(2),.simfile(SIM_PRIO)) u_pre_prio(
+jtframe_prom #(.aw(8),.dw(2),.simfile(SIM_PRIO)) u_pre_prio(
     .clk    ( clk           ),
     .cen    ( 1'b1          ),
     .data   ( prom_din[1:0] ),

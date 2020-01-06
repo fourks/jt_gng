@@ -19,6 +19,7 @@
 module jtbtiger_video(
     input               rst,
     input               clk,
+    input               cen12,
     input               cen8,
     input               cen6,
     input               cen3,
@@ -42,11 +43,11 @@ module jtbtiger_video(
     input               scr_cs,
     output      [ 7:0]  scr_dout,
     output      [16:0]  scr_addr,
-    input       [23:0]  scr_data,
+    input       [15:0]  scr_data,
     input               scr_ok,
     output              scr_busy,
-    input       [ 8:0]  scr_hpos,
-    input       [ 8:0]  scr_vpos,
+    input       [10:0]  scr_hpos,
+    input       [10:0]  scr_vpos,
     input       [ 1:0]  scr_bank,
     input               scr_layout,
     input               SCRON,
@@ -71,9 +72,7 @@ module jtbtiger_video(
     output              LVBL_dly,
     // Palette PROMs
     input       [7:0]   prog_addr,
-    input               prom_red_we,
-    input               prom_green_we,
-    input               prom_blue_we,
+    input               prom_prior_we,
     input       [3:0]   prom_din,  
     // Palette RAM
     input               blue_cs,
@@ -87,7 +86,7 @@ module jtbtiger_video(
 
 localparam OBJMAX       = 10'd511, // DMA buffer 512 bytes = 4*128
            OBJMAX_LINE  = 6'd32,
-           AVATAR_MAX   = 8;
+           AVATAR_MAX   = 9;
 
 wire [6:0] char_pxl;
 wire [6:0] obj_pxl;
@@ -98,11 +97,11 @@ wire [3:0] avatar_idx;
 `ifndef NOCHAR
 
 wire [7:0] char_msg_low;
-wire [7:0] char_msg_high;
+wire [7:0] char_msg_high=8'h0;
 wire [9:0] char_scan;
 
 jtgng_char #(
-    .HOFFSET ( 1),
+    .HOFFSET ( 0),
     .ROM_AW  (14),
     .PALW    ( 5),
     .VFLIP_EN( 0),
@@ -141,19 +140,29 @@ jtgng_char #(
     .prom_we    (               )
 );
 
-jtgng_charmsg u_msg(
+jtgng_charmsg #(.VERTICAL(0)) u_msg(
     .clk         ( clk           ),
     .cen6        ( cen6          ),
     .avatar_idx  ( avatar_idx    ),
     .scan        ( char_scan     ),
     .msg_low     ( char_msg_low  ),
-    .msg_high    ( char_msg_high ) 
+    .msg_high    (               ) 
 );
 `else
+assign char_pxl  = ~7'd0;
 assign char_mrdy = 1'b1;
 `endif
 
 `ifndef NOSCR
+wire [7:0] scr_pre;
+
+jtframe_sh #(.width(8),.stages(5)) u_hb_dly(
+    .clk    ( clk      ),
+    .clk_en ( cen6     ),
+    .din    ( scr_pre  ),
+    .drop   ( scr_pxl  )
+);
+
 jtbtiger_scroll #(.HOFFSET(0)) u_scroll (
     .clk        ( clk           ),
     .pxl_cen    ( cen6          ),
@@ -178,7 +187,7 @@ jtbtiger_scroll #(.HOFFSET(0)) u_scroll (
     .rom_data   ( scr_data      ),
     .rom_ok     ( scr_ok        ),
     // pixel output
-    .scr_pxl    ( scr_pxl       )
+    .scr_pxl    ( scr_pre       )
 );
 `else
 assign scr_busy   = 1'b0;
@@ -193,12 +202,14 @@ jtgng_obj #(
     .OBJMAX_LINE  ( OBJMAX_LINE ),
     .ROM_AW       ( 17          ),
     .PALW         (  3          ),
+    .PXL_DLY      (  8          ),    
     .LAYOUT       (  4          ),
-    .AVATAR_MAX   ( AVATAR_MAX  ))
+    .AVATAR_MAX   ( AVATAR_MAX  ),
+    .VERTICAL     ( 0           ))
 u_obj (
     .rst        ( rst         ),
     .clk        ( clk         ),
-    .draw_cen   ( cen8        ),
+    .draw_cen   ( cen12       ),
     .dma_cen    ( cen8        ),
     .pxl_cen    ( cen6        ),
     .AB         ( obj_AB      ),
@@ -240,6 +251,7 @@ assign obj_pxl = ~6'd0;
 jtbtiger_colmix u_colmix (
     .rst          ( rst           ),
     .clk          ( clk           ),
+    .cen12        ( cen12         ),
     .cen6         ( cen6          ),
 
     .char_pxl     ( char_pxl      ),
@@ -249,6 +261,11 @@ jtbtiger_colmix u_colmix (
     .LHBL         ( LHBL          ),
     .LHBL_dly     ( LHBL_dly      ),
     .LVBL_dly     ( LVBL_dly      ),
+
+    // Priority PROM
+    .prog_addr    ( prog_addr     ),
+    .prom_prior_we( prom_prior_we ),
+    .prom_din     ( prom_din      ),
 
     // Avatars
     .pause        ( pause         ),
@@ -279,4 +296,4 @@ assign blue = 4'd0;
 assign green= 4'd0;
 `endif
 
-endmodule // jtgng_video
+endmodule

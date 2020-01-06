@@ -22,15 +22,17 @@
 module jtbiocom_sound(
     input           rst,
     input           clk,    
+    input           cen_alt,
     input           cen_fm,   // 14.31318/4   MHz ~ 3.5  MHz => 10/134 of 48MHz clock
     input           cen_fm2,  // 14.31318/4/8 MHz ~ 1.75 MHz =>  5/134 of 48MHz clock
     // Interface with main CPU
     input   [7:0]   snd_latch,
-    input           nmi_n,
+    (*keep*) input           nmi_n,
     // Interface with MCU
     input   [7:0]   snd_din,
     output  [7:0]   snd_dout,
     output          snd_mcu_wr,
+    output          snd_mcu_rd,
     // ROM
     output  [14:0]  rom_addr,
     output  reg     rom_cs,
@@ -43,12 +45,13 @@ module jtbiocom_sound(
     output                sample
 );
 
-wire [15:0] A;
+(*keep*) wire [15:0] A;
 reg  fm_cs, latch_cs, ram_cs, mcu_cs;
 wire mreq_n, rfsh_n, int_n;
 wire WRn;
 
 assign snd_mcu_wr = mcu_cs && !WRn;
+assign snd_mcu_rd = mcu_cs &&  WRn;
 
 always @(*) begin
     rom_cs   = 1'b0;
@@ -75,8 +78,7 @@ assign WRn = wr_n | mreq_n;
 assign snd_dout = dout;
 assign rom_addr = A[14:0];
 
-
-jtgng_ram #(.aw(11)) u_ram(
+jtframe_ram #(.aw(11)) u_ram(
     .clk    ( clk      ),
     .cen    ( 1'b1     ),
     .data   ( dout     ),
@@ -96,35 +98,19 @@ always @(*)
         default:  din = rom_data;
     endcase // {latch_cs,rom_cs,ram_cs}
 
-reg reset_n=1'b0;
+wire iorq_n, m1_n;
+(*keep*) wire irq_ack = !iorq_n && !m1_n;
 
-// local reset
-reg [3:0] rst_cnt;
-
-always @(negedge clk)
-    if( rst ) begin
-        rst_cnt <= 'd0;
-        reset_n <= 1'b0;
-    end else begin
-        if( rst_cnt != ~4'b0 ) begin
-            reset_n <= 1'b0;
-            rst_cnt <= rst_cnt + 4'd1;
-        end else reset_n <= 1'b1;
-    end
-
-wire wait_n = !(rom_cs && !rom_ok);
-
-jtframe_z80 u_cpu(
-    .rst_n      ( reset_n     ),
+jtframe_z80_wait u_cpu(
+    .rst_n      ( ~rst        ),
     .clk        ( clk         ),
-    .cen        ( cen_fm      ),
-    .wait_n     ( wait_n      ),
+    .cen        ( cen_alt     ),
     .int_n      ( int_n       ),
     .nmi_n      ( nmi_n       ),
     .busrq_n    ( 1'b1        ),
-    .m1_n       (             ),
+    .m1_n       ( m1_n        ),
     .mreq_n     ( mreq_n      ),
-    .iorq_n     (             ),
+    .iorq_n     ( iorq_n      ),
     .rd_n       ( rd_n        ),
     .wr_n       ( wr_n        ),
     .rfsh_n     ( rfsh_n      ),
@@ -132,7 +118,10 @@ jtframe_z80 u_cpu(
     .busak_n    (             ),
     .A          ( A           ),
     .din        ( din         ),
-    .dout       ( dout        )
+    .dout       ( dout        ),
+    // manage access to ROM data from SDRAM
+    .rom_cs     ( rom_cs      ),
+    .rom_ok     ( rom_ok      )
 );
 
 jt51 u_jt51(
@@ -159,5 +148,20 @@ jt51 u_jt51(
     .dacleft    (           ),
     .dacright   (           )
 );
+
+`ifdef SIMULATION
+reg nmi_req;
+
+always @(negedge nmi_n) begin
+    if( nmi_req ) $display("ERROR: NMI was not ack'ed");
+    nmi_req <= 1'b1;
+    $display("NMI req");
+end
+
+always @(posedge rom_cs) begin
+    nmi_req <= 1'b0;
+    if( A == 16'h66 ) $display("NMI ack");
+end
+`endif
 
 endmodule // jtgng_sound

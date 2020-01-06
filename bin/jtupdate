@@ -2,14 +2,23 @@
 MIST=-mist
 EXTRA=
 
+cores="1942 1943 gng biocom commando gunsmoke vulgus tora f1dream btiger"
+
+
 while [ $# -gt 0 ]; do
     case "$1" in
         -mister)
             MIST=-mister;;
         -mist)
             MIST=-mist;;
+        -sidi)
+            EXTRA="-sidi -z $EXTRA"
+            MIST=-mist;;
         -all | -a)
 			MIST="-mist -mister";;
+        -cores)
+            shift
+            cores="$1";;
         -h | -help | --help)
             cat <<EOF
 Updates all JT cores. Usage:
@@ -25,7 +34,7 @@ EOF
         :)
             # the remaining argument will be passed directly to the compilation
             shift
-            EXTRA="$*"
+            EXTRA="$EXTRA $*"
             break;;
         *)  echo "ERROR: Unknown option $1";
             exit 1;;
@@ -33,14 +42,10 @@ EOF
     shift
 done
 
-cores="1942 1943 gng commando gunsmoke vulgus tora f1dream"
+PARA=
 
-if [ $MIST = -mister ]; then
-    # MiSTer cores are processed serially
-    cores="$cores biocom"
-    for i in $cores; do
-        nice jtcore $i -mister $EXTRA
-    done
-else
-    parallel jtcore {} $EXTRA ::: $cores ::: $MIST
+if [ "$MIST" = -mister ]; then
+    PARA="$PARA --jobs 2"
 fi
+
+parallel $PARA $JTFRAME/bin/jtcore {} $EXTRA ::: $cores ::: $MIST

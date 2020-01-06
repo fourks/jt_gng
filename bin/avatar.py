@@ -166,7 +166,7 @@ def get_pal(bmp):
 pal_list=list()
 
 def convert_file(filename):
-    p=jtgng_path+filename.strip("\n")
+    p=jtgng_path+"cores/"+filename.strip("\n")
     print p
     bmp=read_bmp( p )
     pal=get_pal(bmp)
@@ -177,7 +177,8 @@ def convert_file(filename):
 
 # Try opening the file with the list of PNG images
 corename=sys.argv[1]
-avatar_filename = jtgng_path+corename+"/patrons/avatars"
+corepath=jtgng_path+"cores/"+corename
+avatar_filename = corepath+"/patrons/avatars"
 file = open( avatar_filename )
 line = file.readline()
 
@@ -189,7 +190,7 @@ file.close()
 # dump the new ROM files
 
 # Graphics
-f0=open(jtgng_path+corename+"/mist/avatar.hex","w")
+f0=open(corepath+"/mist/avatar.hex","w")
 for k in range(len(bufzy)):
     x = bufzy[k]<<8
     x |= bufxw[k]
@@ -197,7 +198,7 @@ for k in range(len(bufzy)):
     f0.write("%4X\n" % x )
 
 # Map
-f0=open(jtgng_path+corename+"/mist/avatar_xy.hex","w")
+f0=open(corepath+"/mist/avatar_xy.hex","w")
 k=0
 for k in range(len(mapxy)>>2):
     k4 = k*4
@@ -207,7 +208,7 @@ for k in range(len(mapxy)>>2):
     f0.write( "%2X\n" % (mapxy[k4+3]&255) )
 
 # Palette
-f0=open(jtgng_path+corename+"/mist/avatar_pal.hex","w")
+f0=open(corepath+"/mist/avatar_pal.hex","w")
 for pal in pal_list:
     palbuf=[]
     for k in range(16):
@@ -384,7 +385,64 @@ if corename=="tora" or corename=="biocom" or corename=="f1dream":
             255,255,255,255,255,255,255,
     ]
 
-f0=open(jtgng_path+corename+"/mist/avatar_obj.hex","w")
+if corename=="btiger":
+   map9x9 = [  # Scralings
+         0, 1, 2,
+         3, 4, 5, 
+         6, 7, 8,
+            #unused
+            255,255,255,255,255,255,255,
+        # Suv
+         9,10,11,
+        12,13,14,
+        15,16,17,
+            #unused
+            255,255,255,255,255,255,255,
+        # Mahe
+        18,255,255,
+        255,18,255,
+        255,255,18,
+            #unused
+            255,255,255,255,255,255,255,
+        # Tomiyori
+        19,20,255,
+        21,22,255,
+        23,24,255,
+            #unused
+            255,255,255,255,255,255,255,
+        # Brian
+        25,26,27,
+        28,29,30,
+        31,32,33,
+            #unused
+            255,255,255,255,255,255,255,
+        # McMahon
+        34,35,255,
+        36,37,255,
+        38,39,255,
+            #unused
+            255,255,255,255,255,255,255,
+        # Hubbard
+        40,41,42,
+        43,44,45,
+        46,47,48,
+            #unused
+            255,255,255,255,255,255,255,
+        # Daniel Bauza
+        49,50,51,
+        52,53,54,
+        55,56,57,
+            #unused
+            255,255,255,255,255,255,255,
+        # Arcade Express
+        58,59,60,
+        61,62,63,
+        64,65,66,
+            #unused
+            255,255,255,255,255,255,255,
+    ]
+
+f0=open(corepath+"/mist/avatar_obj.hex","w")
 for k in map9x9:
     f0.write("%X\n" % k)
 

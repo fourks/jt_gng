@@ -34,17 +34,18 @@ module jtgng_tilemap #(parameter
     DATAREAD    = 3'd2,
     SCANW       = 10,
     BUSY_ON_H0  = 0,    // if 1, the busy signal is asserted only at H0 posedge, otherwise it uses the regular clock
-    SIMID       = ""
+    SIMID       = "",
+    VHW         = 8
 ) (
     input                  clk,
-    input                  pxl_cen /* synthesis direct_enable = 1 */,
+    (* direct_enable *) input pxl_cen,
     input                  Asel,  // This is the address bit that selects
                             // between the low and high tile map
     input            [1:0] dseln,
     input                  layout,  // use by Black Tiger to change scan
     input      [SCANW-1:0] AB,
-    input            [7:0] V,
-    input            [7:0] H,
+    input        [VHW-1:0] V,
+    input        [VHW-1:0] H,
     input                  flip,
     input         [DW-1:0] din,
     output    reg [DW-1:0] dout,
@@ -69,10 +70,14 @@ always @(*) begin
         scan = (INVERT_SCAN ? { {SCANW{flip}}^{H[7:3],V[7:3]}} 
             : { {SCANW{flip}}^{V[7:3],H[7:3]}}) >> (10-SCANW);
     end else begin
-        if( SCANW==13) begin // Black Tiger
+        if( SCANW==13 ) begin // Black Tiger
             // 1 -> tile map 8x4
             // 0 -> tile map 4x8
-            scan =  layout ? { V[7:1], H[7:2] } : { V[7:2], H[7:1] };
+            scan =  layout ? 
+                { V[8:7], H[9:7], V[6:3], H[6:3] } :
+                { V[9:7], H[8:7], V[6:3], H[6:3] };
+            // { V[6:5], H[7:5], V[4:1], H[4:1] };
+            //layout ? { V[7:1], H[7:2] } : { V[7:2], H[7:1] };
         end else // other games
             scan = { V[7:2], H[7:2] }; // SCANW assumed to be 12
     end
@@ -135,8 +140,14 @@ always @(posedge clk) begin : mem_mux
 end
 
 // Use these macros to add simulation files
-// like ', .simhexfile("sim.hex")' or
-// ', .simfile("sim.bin")'
+// like 
+// ',.simhexfile("sim.hex")' or
+// ',.simfile("sim.bin")'
+// when calling the simulation script:
+// go.sh \
+//    -d JTCHAR_LOWER_SIMFILE=',.simfile("scr0.bin")' \
+//    -d JTCHAR_UPPER_SIMFILE=',.simfile("scr1.bin")' 
+
 
 `ifndef JTCHAR_UPPER_SIMFILE
 `define JTCHAR_UPPER_SIMFILE
@@ -146,7 +157,7 @@ end
 `define JTCHAR_LOWER_SIMFILE
 `endif
 
-jtgng_ram #(.aw(SCANW) `JTCHAR_LOWER_SIMFILE) u_ram_low(
+jtframe_ram #(.aw(SCANW) `JTCHAR_LOWER_SIMFILE) u_ram_low(
     .clk    ( clk      ),
     .cen    ( 1'b1     ),
     .data   ( ldlatch  ),
@@ -158,7 +169,7 @@ jtgng_ram #(.aw(SCANW) `JTCHAR_LOWER_SIMFILE) u_ram_low(
 // attributes
 // the default value for synthesis will display a ROM load message using
 // the palette attributes
-jtgng_ram #(.aw(SCANW) `JTCHAR_UPPER_SIMFILE) u_ram_high(
+jtframe_ram #(.aw(SCANW) `JTCHAR_UPPER_SIMFILE) u_ram_high(
     .clk    ( clk      ),
     .cen    ( 1'b1     ),
     .data   ( udlatch  ),

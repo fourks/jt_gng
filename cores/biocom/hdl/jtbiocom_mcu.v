@@ -38,26 +38,26 @@ module jtbiocom_mcu(
     input                rst,
     input                clk,
     input                cen6a,       //  6   MHz
-    input                cen6b,       //  6   MHz
     // Main CPU interface
-    input                DMAONn,
+    (*keep*) input                DMAONn,
     output       [ 7:0]  mcu_dout,
     input        [ 7:0]  mcu_din,
     output               mcu_wr,   // always write to low bytes
     output       [16:1]  mcu_addr,
-    output               mcu_brn,   // RQBSQn
-    output               DMAn,
+    (*keep*) output               mcu_brn,   // RQBSQn
+    (*keep*) output               DMAn,
     // Sound CPU interface
     input        [ 7:0]  snd_dout,
     output reg   [ 7:0]  snd_din,
     input                snd_mcu_wr,
+    input                snd_mcu_rd,
     // ROM programming
     input        [11:0]  prog_addr,
     input        [ 7:0]  prom_din,
     input                prom_we
 );
 
-wire [15:0] rom_addr;
+(*keep*) wire [15:0] rom_addr;
 wire [15:0] ext_addr;
 wire [ 6:0] ram_addr;
 wire [ 7:0] ram_data;
@@ -65,7 +65,7 @@ wire        ram_we;
 wire [ 7:0] ram_q, rom_data;
 
 wire [ 7:0] p1_o, p2_o, p3_o;
-reg         int0, int1;
+(*keep*) reg         int0, int1;
 
 // interface with main CPU
 assign mcu_addr[13:9] = ~5'b0;
@@ -89,22 +89,26 @@ always @(posedge clk, posedge rst) begin
     end
 end
 
-
 // interface with sound CPU
 wire      int1_clrn = p3_o[4];
 
 reg [7:0] snd_dout_latch;
-reg       last_snd_mcu_wr, last_p3_6;
-wire      posedge_snd = snd_mcu_wr && !last_snd_mcu_wr;
+reg       last_snd_mcu_wr, last_p3_6, last_snd_mcu_rd;
+wire      posedge_snd    = snd_mcu_wr && !last_snd_mcu_wr;
+wire      posedge_snd_rd = snd_mcu_rd && !last_snd_mcu_rd;
 wire      posedge_p3_6 = p3_o[6] && !last_p3_6;
+wire      snd_blank = p1_o == 8'hff;
+reg       snd_done;
 
 always @(posedge clk, posedge rst) begin
     if( rst ) begin
         snd_dout_latch   <= 8'd0;
         int1            <= 1'b1;
         last_snd_mcu_wr <= 1'b0;
+        snd_done        <= 1'b1;
     end else begin
         last_snd_mcu_wr <= snd_mcu_wr;
+        last_snd_mcu_rd <= snd_mcu_rd;
         last_p3_6       <= p3_o[6];
         if( posedge_snd )
             snd_dout_latch <= snd_dout;
@@ -113,12 +117,15 @@ always @(posedge clk, posedge rst) begin
             int1 <= 1'b1;
         else if( posedge_snd ) int1 <= 1'b0;
         // latch sound data
-        if( posedge_p3_6 )
-            snd_din <= p1_o;
+        if( posedge_snd_rd ) snd_done <= 1'b1;
+        if( posedge_p3_6 && (snd_done || !snd_blank) ) begin
+            snd_done <= snd_blank;
+            snd_din  <= p1_o;
+        end
     end
 end
 
-jtgng_prom #(.aw(12),.dw(8),
+jtframe_prom #(.aw(12),.dw(8),
     `ifdef F1DREAM    
     .simfile("../../../rom/f1dream/8751.mcu")
     `else
@@ -134,7 +141,7 @@ jtgng_prom #(.aw(12),.dw(8),
     .q          ( rom_data          )
 );
 
-jtgng_ram #(.aw(7),.cen_rd(1)) u_ramu(
+jtframe_ram #(.aw(7),.cen_rd(1)) u_ramu(
     .clk        ( clk               ),
     .cen        ( cen6a             ),
     .addr       ( ram_addr          ),
@@ -143,16 +150,9 @@ jtgng_ram #(.aw(7),.cen_rd(1)) u_ramu(
     .q          ( ram_q             )
 );
 
-wire clk2 = clk&cen6a; // cheap clock gating
-
-reg  [ 7:0] mcu_din0;
-
-always @(posedge clk) if(cen6a) begin
-    mcu_din0 <= mcu_din;
-end
-
 mc8051_core u_mcu(
-    .clk        ( clk2      ),
+    .clk        ( clk       ),
+    .cen        ( cen6a     ),
     .reset      ( rst       ),
     // code ROM
     .rom_data_i ( rom_data  ),
@@ -164,7 +164,7 @@ mc8051_core u_mcu(
     .ram_wr_o   ( ram_we    ),
     .ram_en_o   (           ),
     // external memory: connected to main CPU
-    .datax_i    ( mcu_din0  ),
+    .datax_i    ( mcu_din   ),
     .datax_o    ( mcu_dout  ),
     .adrx_o     ( ext_addr  ),
     .wrx_o      ( mcu_wr    ),
